@@ -1,0 +1,41 @@
+{
+    // See https://go.microsoft.com/fwlink/?LinkId=733558
+    // for the documentation about the tasks.json format
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Compress client",
+            "type": "shell",
+            "command": "cd Client && zip -r /mnt/c/Users/Julian/Desktop/beammp_Server/windows/Resources/Client/CarDart.zip art lua scripts",
+            "windows": {
+                "command": "cd Client ; 7z a -tzip C:/Users/Julian/Desktop/beammp_Server/windows/Resources/Client/CarDart.zip art lua settings scripts ui LICENSE -aoa -r ; cd ../Server/CarDart ; C:\\Users\\Julian\\Documents\\dev\\BeamMP-CarDart\\generate_trackNames.bat ; Copy-Item 'trackNames.json' 'C:/Users/Julian/Desktop/beammp_Server/windows/Resources/Server/CarDart/trackNames.json'"
+            }
+            ,
+            "options": {
+                "cwd": ""
+            }
+        },
+        {
+            "label": "Copy server",
+            "type": "shell",
+            "command": "cd Server/CarDart && cp 'CarDart.lua' '/mnt/c/Users/Julian/Desktop/beammp_Server/windows/Resources/Server/CarDart.lua'",
+            "windows": {
+                "command": "cd Server/CarDart ; Copy-Item 'CarDart.lua' 'C:/Users/Julian/Desktop/beammp_Server/windows/Resources/Server/CarDart/CarDart.lua' ; C:\\Users\\Julian\\Documents\\dev\\BeamMP-CarDart\\generate_trackNames.bat ; Copy-Item 'trackNames.json' 'C:/Users/Julian/Desktop/beammp_Server/windows/Resources/Server/CarDart/trackNames.json'"
+            },
+            "options": {
+                "cwd": ""
+            }
+        },
+        {
+            "label": "Compress Release",
+            "type": "shell",
+            "command": "rm -f Client && rm -f CarDart.zip && cd ../Client && zip -r Client/CarDart.zip && cd ../export && ../Client && zip -r CarDart.zip Client ../Server",
+            "windows": {
+                "command": "Remove-Item -Path Client -Force -Recurse -ErrorAction SilentlyContinue ; Remove-Item -Path CarDart.zip -Force -ErrorAction SilentlyContinue ; Set-Location -Path ../Client ; 7z a -tzip ../export/Client/CarDart.zip . -aoa -r ; Set-Location -Path ../export ; 7z a -tzip CarDart.zip Client ../Server -aoa -r  ; C:\\Users\\Julian\\Documents\\dev\\BeamMP-CarDart\\generate_trackNames.bat ; Copy-Item 'trackNames.json' 'C:/Users/Julian/Desktop/beammp_Server/windows/Resources/Server/CarDart/trackNames.json'"
+            },
+            "options": {
+                "cwd": "export"
+            }
+        }
+    ]
+}
