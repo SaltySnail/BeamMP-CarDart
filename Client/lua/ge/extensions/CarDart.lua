@@ -8,7 +8,7 @@ local blockedInputActionsOnRoundStart = {'slower_motion','faster_motion','toggle
 local colors = {{255,50,50,255}--[[Red]],{50,50,160,255}--[[Light Blue]],{50,255,50,255}--[[Green]],{200,200,25,255}--[[Yellow]],{150,50,195,255}--[[Purple]]}
 local team = nil
 
-function dump(o)
+local function dump(o)
     if type(o) == 'table' then
        local s = '{ '
        for k,v in pairs(o) do
@@ -79,7 +79,7 @@ local function CDSetTeam()
 	TriggerServerEvent("CDSetTeam", team)
 end
 
-function CDRemoveArena()
+local function CDRemoveArena()
 	print("CDRemoveArena")
 	removePrefab(trackPrefabName)
 	extensions['util_trackBuilder_splineTrack'].removeTrack()
@@ -91,17 +91,7 @@ function CDRemoveArena()
 	be:reloadStaticCollision()
 end
 
-function CDPrepareRound(arena)
-	CDRemoveArena()
-	CDSpawnArena(arena)
-	CDSetTeam()
-	CDSetTeamColor(true)
-	CDTeleportToStart()
-	CDSetFreeze(1)
-	CDAllowedResets(blockedInputActionsOnRoundStart, false)
-end
-
-function CDSetFreeze(freeze)
+local function CDSetFreeze(freeze)
 	for ID, veh in pairs(MPVehicleGE.getOwnMap()) do --freeze all the owned cars
 		local vehicle = be:getObjectByID(ID)
 		vehicle:queueLuaCommand('controller.setFreeze(' .. freeze .. ')')
@@ -115,12 +105,12 @@ function CDSetFreeze(freeze)
 	end
 end
 
-function CDStartRound()
+local function CDStartRound()
 	CDSetFreeze(0)
 	TriggerServerEvent("CDSetScore", "0")
 end
 
-function CDEndRound()
+local function CDEndRound()
 	CDRemoveArena()
 	CDAllowedResets(blockedInputActionsOnRoundStart, true)
 	CDSetTeamColor(false)
@@ -128,7 +118,7 @@ function CDEndRound()
 	allPoints = {[0] = true}
 end
 
-function CDSpawnArena(name)
+local function CDSpawnArena(name)
 	print("CDSpawnArena")
 	currentArenaName = name
 	local metadata = jsonReadFile("art/" .. name .. ".metadata.json")
@@ -140,7 +130,7 @@ function CDSpawnArena(name)
 	end
 end
 
-function onCDScoreTrigger(trigger)
+local function onCDScoreTrigger(trigger)
 	print(dump(trigger))
 	for ID, veh in pairs(MPVehicleGE.getOwnMap()) do
 		if ID ~= trigger.subjectID then break end
@@ -159,12 +149,22 @@ function onCDScoreTrigger(trigger)
 	end
 end
 
-function onCDOutOfBoundsTrigger(trigger)
+local function onCDOutOfBoundsTrigger(trigger)
 	print(dump(trigger))
 	for ID, veh in pairs(MPVehicleGE.getOwnMap()) do
 		if ID ~= trigger.subjectID then break end
 		TriggerServerEvent("CDStrikePlayerOut", "nil")
 	end
+end
+
+local function CDPrepareRound(arena)
+	CDRemoveArena()
+	CDSpawnArena(arena)
+	CDSetTeam()
+	CDSetTeamColor(true)
+	CDTeleportToStart()
+	CDSetFreeze(1)
+	CDAllowedResets(blockedInputActionsOnRoundStart, false)
 end
 
 if MPGameNetwork then AddEventHandler("CDSpawnArena", CDSpawnArena) end
