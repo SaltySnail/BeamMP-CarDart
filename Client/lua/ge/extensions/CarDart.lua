@@ -2,18 +2,25 @@ local M = {} --metatable
 local trackPrefabObj
 local trackPrefabName
 local currentArenaName
+local currentLoadedArenaName
 local allPoints = {[0] = true}
 local ramps = {}
 local blockedInputActionsOnRoundStart = {'slower_motion','faster_motion','toggle_slow_motion','modify_vehicle','vehicle_selector','saveHome','loadHome', 'reset_all_physics','toggleTraffic', "recover_vehicle", "recover_vehicle_alt", "recover_to_last_road", "reload_vehicle", "reload_all_vehicles", "parts_selector", "dropPlayerAtCamera", "nodegrabberRender",'reset_physics','dropPlayerAtCameraNoReset'} 
 local colors = {{255,50,50,255}--[[Red]],{50,50,160,255}--[[Light Blue]],{50,255,50,255}--[[Green]],{200,200,25,255}--[[Yellow]],{150,50,195,255}--[[Purple]]}
 local team = nil
+local useFieldSystem
 
-local function dump(o)
+local arenaOffset = vec3()
+local arenaRotOffsetEuler = vec3()
+local arenaRotOffsetQuat = quat()
+local floorHeight
+
+local function customDump(o)
     if type(o) == 'table' then
        local s = '{ '
        for k,v in pairs(o) do
           if type(k) ~= 'number' then k = '"'..k..'"' end
-          s = s .. '['..k..'] = ' .. dump(v) .. ','
+          s = s .. '['..k..'] = ' .. customDump(v) .. ','
        end
        return s .. '} '
     else
@@ -66,8 +73,9 @@ local function CDTeleportToStart()
 	for vehID, vehData in pairs(MPVehicleGE.getOwnMap()) do
 		local veh = be:getObjectByID(vehID)
 		if not veh then break end
-		local q = quatFromEuler(math.rad(spawnLocation.rx), math.rad(spawnLocation.ry), math.rad(spawnLocation.rz))
-		veh:setPositionRotation(spawnLocation.x, spawnLocation.y, spawnLocation.z, q.x, q.y, q.z, q.w)
+		local finalSpawnPos = vec3(spawnLocation.x,spawnLocation.y,spawnLocation.z):rotated(arenaRotOffsetQuat)
+		local q = quatFromEuler(math.rad(spawnLocation.rx), math.rad(spawnLocation.ry), math.rad(spawnLocation.rz)) * arenaRotOffsetQuat
+		veh:setPositionRotation(finalSpawnPos.x + arenaOffset.x, finalSpawnPos.y + arenaOffset.y, finalSpawnPos.z + arenaOffset.z, q.x, q.y, q.z, q.w)
 		veh:queueLuaCommand("recovery.startRecovering()") --fix up the car because it might have been damaged
 		veh:queueLuaCommand("recovery.stopRecovering()")
 	end
@@ -81,7 +89,9 @@ end
 
 local function CDRemoveArena()
 	print("CDRemoveArena")
+	CarDartpointsTracker.clearAllTargets()
 	removePrefab(trackPrefabName)
+	floorHeight = nil
 	extensions['util_trackBuilder_splineTrack'].removeTrack()
 	for _, objectName in pairs(scenetree.getAllObjects()) do
 		if objectName:find("^procMesh") then 
@@ -89,18 +99,21 @@ local function CDRemoveArena()
 		end
 	end
 	be:reloadStaticCollision()
+	currentLoadedArenaName = nil
 end
 
 local function CDSetFreeze(freeze)
 	for ID, veh in pairs(MPVehicleGE.getOwnMap()) do --freeze all the owned cars
 		local vehicle = be:getObjectByID(ID)
-		vehicle:queueLuaCommand('controller.setFreeze(' .. freeze .. ')')
-		if tonumber(freeze) == 1 then
-			vehicle:queueLuaCommand('if gliderPhysics then gliderPhysics.disableJumping() end')
-			vehicle:queueLuaCommand('if gliderPhysics then gliderPhysics.disableGliding() end')
-		else
-			vehicle:queueLuaCommand('if gliderPhysics then gliderPhysics.enableJumping() end')
-			vehicle:queueLuaCommand('if gliderPhysics then gliderPhysics.enableGliding() end')
+		if vehicle then
+			vehicle:queueLuaCommand('controller.setFreeze(' .. freeze .. ')')
+			if tonumber(freeze) == 1 then
+				vehicle:queueLuaCommand('if gliderPhysics then gliderPhysics.disableJumping() end')
+				--vehicle:queueLuaCommand('if gliderPhysics then gliderPhysics.disableGliding() end')
+			else
+				vehicle:queueLuaCommand('if gliderPhysics then gliderPhysics.enableJumping() end')
+				vehicle:queueLuaCommand('if gliderPhysics then gliderPhysics.enableGliding() end')
+			end
 		end
 	end
 end
@@ -110,28 +123,54 @@ local function CDStartRound()
 	TriggerServerEvent("CDSetScore", "0")
 end
 
-local function CDEndRound()
-	CDRemoveArena()
+local function CDEndRound(removeArena)
+	dump("removeArena",removeArena)
+	if removeArena ~= "nil" then
+		CDRemoveArena()
+	end
 	CDAllowedResets(blockedInputActionsOnRoundStart, true)
 	CDSetTeamColor(false)
 	CDSetFreeze(0)
 	allPoints = {[0] = true}
+	useFieldSystem = nil
 end
 
 local function CDSpawnArena(name)
-	print("CDSpawnArena")
+	dump("CDSpawnArena")
 	currentArenaName = name
 	local metadata = jsonReadFile("art/" .. name .. ".metadata.json")
 	trackPrefabName   = name
-	trackPrefabObj    = spawnPrefab(name, "art/" .. name .. ".prefab.json", '0 0 0', '0 0 1', '1 1 1') --the prefab is the target
-	-- be:reloadStaticCollision(true)
-	for i=1,#metadata.spawnLocations do
-		extensions['util_trackBuilder_splineTrack'].load(jsonReadFile("art/" .. name .. i .. ".json"), true, nil, nil, true, false) --calls reloadStaticCollision so should be called last.
+	if metadata.prefabLocation then
+		arenaOffset = vec3(metadata.prefabLocation)
 	end
+	if metadata.prefabRotation then
+		arenaRotOffsetEuler = vec3(metadata.prefabRotation)
+		arenaRotOffsetQuat = quatFromEuler(metadata.prefabRotation.x,metadata.prefabRotation.y,metadata.prefabRotation.z)
+	end
+
+	trackPrefabObj = spawnPrefab(name, "art/" .. name .. ".prefab.json", ''..arenaOffset.x..' '..arenaOffset.y..' '..arenaOffset.z..'', ''..arenaRotOffsetEuler.x..' '..arenaRotOffsetEuler.y..' '..arenaRotOffsetEuler.z..'', '1 1 1') --the prefab is the target
+	if trackPrefabObj then
+		trackPrefabObj:setPosRot(arenaOffset.x,arenaOffset.y,arenaOffset.z,arenaRotOffsetQuat.x,arenaRotOffsetQuat.y,arenaRotOffsetQuat.z,arenaRotOffsetQuat.w)
+	end
+
+	if metadata.floorHeight then
+		floorHeight = metadata.floorHeight
+	end
+
+	if metadata.useFieldSystem then
+		CarDartpointsTracker.addTargets(name)
+		useFieldSystem = true
+		be:reloadStaticCollision(true)
+	elseif name == "CDTarget" then
+		for i=1,#metadata.spawnLocations do
+			extensions['util_trackBuilder_splineTrack'].load(jsonReadFile("art/" .. name .. i .. ".json"), true, nil, nil, true, false) --calls reloadStaticCollision so should be called last.
+		end
+	end
+	currentLoadedArenaName = name
 end
 
 local function onCDScoreTrigger(trigger)
-	print(dump(trigger))
+	print(customDump(trigger))
 	for ID, veh in pairs(MPVehicleGE.getOwnMap()) do
 		if ID ~= trigger.subjectID then break end
 		TriggerServerEvent("CDStrikePlayerOut", "nil")
@@ -144,22 +183,40 @@ local function onCDScoreTrigger(trigger)
 				CDSetFreeze(0)
 			end
 		end
-		print("allPoints: " .. dump(allPoints))
+		print("allPoints: " .. customDump(allPoints))
 		TriggerServerEvent("CDSetScore", #allPoints or "0")
 	end
 end
 
 local function onCDOutOfBoundsTrigger(trigger)
-	print(dump(trigger))
-	for ID, veh in pairs(MPVehicleGE.getOwnMap()) do
+	print(customDump(trigger))
+	if trigger.event ~= "enter" then return end
+
+	local triggerObj = scenetree.findObject(trigger.triggerName)
+	local position = triggerObj:getPosition()
+	local boundingBox = triggerObj:getWorldBox():getExtents()
+	local triggerRoof = position.z + (boundingBox.z/2)
+
+	for ID, _ in pairs(MPVehicleGE.getOwnMap()) do
 		if ID ~= trigger.subjectID then break end
-		TriggerServerEvent("CDStrikePlayerOut", "nil")
+		local veh = be:getObjectByID(ID)
+		if veh then
+			if  vec3(be:getObjectOOBBCenterXYZ(trigger.subjectID)).z < triggerRoof then -- TODO, make this check if center is in the trigger bounding box instead of just using altitude
+				TriggerServerEvent("CDStrikePlayerOut", "nil")
+				veh:queueLuaCommand("controller.setFreeze(1)")
+				veh:queueLuaCommand("CarDartSpeedExplosion.explode()")
+				veh:queueLuaCommand('if gliderPhysics then gliderPhysics.disableJumping() end')
+				veh:queueLuaCommand('if gliderPhysics then gliderPhysics.disableGliding() end')
+			end
+		end
 	end
 end
 
 local function CDPrepareRound(arena)
-	CDRemoveArena()
-	CDSpawnArena(arena)
+	if not currentLoadedArenaName or currentLoadedArenaName ~= arena then
+		CDRemoveArena()
+		CDSpawnArena(arena)
+	end
 	CDSetTeam()
 	CDSetTeamColor(true)
 	CDTeleportToStart()
@@ -167,14 +224,20 @@ local function CDPrepareRound(arena)
 	CDAllowedResets(blockedInputActionsOnRoundStart, false)
 end
 
-if MPGameNetwork then AddEventHandler("CDSpawnArena", CDSpawnArena) end
-if MPGameNetwork then AddEventHandler("CDRemoveArena", CDRemoveArena) end
-if MPGameNetwork then AddEventHandler("onCDScoreTrigger", onCDScoreTrigger) end
-if MPGameNetwork then AddEventHandler("CDPrepareRound", CDPrepareRound) end
-if MPGameNetwork then AddEventHandler("CDStartRound", CDStartRound) end
-if MPGameNetwork then AddEventHandler("CDEndRound", CDEndRound) end
-if MPGameNetwork then AddEventHandler("CDSetFreeze", CDSetFreeze) end
-if MPGameNetwork then AddEventHandler("onCDOutOfBoundsTrigger", onCDOutOfBoundsTrigger) end
+local function onExtensionLoaded()
+	loadDirRec("art/Shapes/CarDart")
+	if MPGameNetwork then
+		AddEventHandler("CDSpawnArena", CDSpawnArena)
+		AddEventHandler("CDRemoveArena", CDRemoveArena)
+		AddEventHandler("CDRemoveArena", CDRemoveArena)
+		AddEventHandler("onCDScoreTrigger", onCDScoreTrigger)
+		AddEventHandler("CDPrepareRound", CDPrepareRound)
+		AddEventHandler("CDStartRound", CDStartRound)
+		AddEventHandler("CDEndRound", CDEndRound)
+		AddEventHandler("CDSetFreeze", CDSetFreeze)
+		AddEventHandler("onCDOutOfBoundsTrigger", onCDOutOfBoundsTrigger)
+	end
+end
 
 M.CDSpawnArena = CDSpawnArena
 M.CDRemoveArena = CDRemoveArena
@@ -184,4 +247,5 @@ M.CDStartRound = CDStartRound
 M.CDEndRound = CDEndRound
 M.CDSetFreeze = CDSetFreeze
 M.onCDOutOfBoundsTrigger = onCDOutOfBoundsTrigger
+M.onExtensionLoaded = onExtensionLoaded --
 return M --return the metatable	
